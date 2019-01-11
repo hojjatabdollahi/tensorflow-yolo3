@@ -4,7 +4,7 @@ import config
 import numpy as np
 from PIL import Image
 import tensorflow as tf
-from dataReader import Reader
+from multiaffectnet import Reader
 from model.yolo3_model import yolo
 from collections import defaultdict
 from yolo_predict import yolo_predictor
@@ -30,17 +30,22 @@ def train():
     bbox_true_13.set_shape([None, grid_shapes[0], grid_shapes[0], 3, 5 + config.num_classes])
     bbox_true_26.set_shape([None, grid_shapes[1], grid_shapes[1], 3, 5 + config.num_classes])
     bbox_true_52.set_shape([None, grid_shapes[2], grid_shapes[2], 3, 5 + config.num_classes])
-    draw_box(images, bbox)
+    # draw_box(images, bbox)
     model = yolo(config.norm_epsilon, config.norm_decay, config.anchors_path, config.classes_path, config.pre_train)
     bbox_true = [bbox_true_13, bbox_true_26, bbox_true_52]
     output = model.yolo_inference(images, config.num_anchors / 3, config.num_classes, is_training)
-    loss = model.yolo_loss(output, bbox_true, model.anchors, config.num_classes, config.ignore_thresh)
+    loss, loss_xy, loss_wh, loss_conf, loss_class = model.yolo_loss(output, bbox_true, model.anchors, config.num_classes, config.ignore_thresh)
     l2_loss = tf.losses.get_regularization_loss()
     loss += l2_loss
     tf.summary.scalar('loss', loss)
-    merged_summary = tf.summary.merge_all()
+    tf.summary.scalar('loss_xy',loss_xy)
+    tf.summary.scalar('loss_wh',loss_wh)
+    tf.summary.scalar('loss_conf',loss_conf)
+    # tf.summary.scalar('loss_class',loss_class)
     global_step = tf.Variable(0, trainable = False)
-    lr = tf.train.exponential_decay(config.learning_rate, global_step, decay_steps = 2000, decay_rate = 0.8)
+    lr = tf.train.exponential_decay(config.learning_rate, global_step, decay_steps = config.decay_step, decay_rate = 0.96)
+    tf.summary.scalar('learning rate', lr)
+    merged_summary = tf.summary.merge_all()
     optimizer = tf.train.AdamOptimizer(learning_rate = lr)
     # 如果读取预训练权重，则冻结darknet53网络的变量
     update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
@@ -66,20 +71,29 @@ def train():
         loss_value = 0
         for epoch in range(config.Epoch):
             for step in range(int(config.train_num / config.train_batch_size)):
-                start_time = time.time()
-                train_loss, summary, global_step_value, _ = sess.run([loss, merged_summary, global_step, train_op], {is_training : True})
-                loss_value += train_loss
-                duration = time.time() - start_time
-                examples_per_sec = float(duration) / config.train_batch_size
-                format_str = ('Epoch {} step {},  train loss = {} ( {} examples/sec; {} ''sec/batch)')
-                print(format_str.format(epoch, step, loss_value / global_step_value, examples_per_sec, duration))
-                summary_writer.add_summary(summary = tf.Summary(value = [tf.Summary.Value(tag = "train loss", simple_value = train_loss)]), global_step = step)
-                summary_writer.add_summary(summary, step)
-                summary_writer.flush()
+                try:
+                    start_time = time.time()
+                    #  
+                    #  
+                    summary, train_loss,  train_loss_xy, train_loss_wh, train_loss_conf, train_loss_class, global_step_value, _ = sess.run([merged_summary, loss, loss_xy, loss_wh, loss_conf, loss_class, global_step, train_op], {is_training : True})
+                    loss_value += train_loss
+                    duration = time.time() - start_time
+                    examples_per_sec = float(duration) / config.train_batch_size
+                    format_str = ('Epoch {} step {}, avg los: {:.3f}, train loss = {:.3f}, gs: {}, xy:{:.3f}, wh:{:.3f}, conf:{:.3f}, class:{:.3f} ( {:.3f} examples/sec; {:.3f} ''sec/batch)')
+                    # print('.')
+                    # print(format_str.format(epoch, step, train_loss, global_step_value, examples_per_sec, duration))
+                    print(format_str.format(epoch, step, loss_value / global_step_value,  train_loss, global_step_value, train_loss_xy, train_loss_wh, train_loss_conf, train_loss_class, examples_per_sec, duration))
+                    summary_writer.add_summary(summary = tf.Summary(value = [tf.Summary.Value(tag = "train loss", simple_value = train_loss)]), global_step = step)
+                    summary_writer.add_summary(summary, global_step_value)
+                    if step % 100:
+                        summary_writer.flush()
+                except Exception as ex:
+                    print(ex)
             # 每3个epoch保存一次模型
-            if epoch % 3 == 0:
-                checkpoint_path = os.path.join(config.model_dir, 'model.ckpt')
-                saver.save(sess, checkpoint_path, global_step = global_step)
+            # if epoch % 1 == 0:
+            checkpoint_path = os.path.join(config.model_dir, 'model.ckpt')
+            saver.save(sess, checkpoint_path, global_step = global_step_value)
+            print('saved')
 
 
 def eval(model_path, min_Iou = 0.5, yolo_weights = None):

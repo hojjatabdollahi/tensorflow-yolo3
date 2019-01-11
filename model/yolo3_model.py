@@ -386,6 +386,11 @@ class yolo:
             accuracy
         """
         loss = 0
+        tl_xy = 0
+        tl_wh = 0
+        tl_conf = 0
+        tl_class = 0
+
         anchor_mask = [[6, 7, 8], [3, 4, 5], [0, 1, 2]]
         input_shape = [416.0, 416.0]
         grid_shapes = [tf.cast(tf.shape(yolo_output[l])[1:3], tf.float32) for l in range(3)]
@@ -411,7 +416,7 @@ class yolo:
                 best_iou = tf.reduce_max(iou, axis = -1)
                 ignore_mask = ignore_mask.write(internal_index, tf.cast(best_iou < ignore_thresh, tf.float32))
                 return internal_index + 1, ignore_mask
-            _, ignore_mask = tf.while_loop(lambda internal_index, ignore_mask : internal_index < tf.shape(yolo_output[0])[0], loop_body, [0, ignore_mask])
+            _, ignore_mask = tf.while_loop(lambda internal_index, ignore_mask : internal_index < tf.shape(yolo_output[index])[0], loop_body, [0, ignore_mask])
             ignore_mask = ignore_mask.stack()
             ignore_mask = tf.expand_dims(ignore_mask, axis = -1)
             # 计算四个部分的loss
@@ -419,11 +424,14 @@ class yolo:
             wh_loss = object_mask * box_loss_scale * 0.5 * tf.square(raw_true_wh - predictions[..., 2:4])
             confidence_loss = object_mask * tf.nn.sigmoid_cross_entropy_with_logits(labels = object_mask, logits = predictions[..., 4:5]) + (1 - object_mask) * tf.nn.sigmoid_cross_entropy_with_logits(labels = object_mask, logits = predictions[..., 4:5]) * ignore_mask
             class_loss = object_mask * tf.nn.sigmoid_cross_entropy_with_logits(labels =  class_probs, logits = predictions[..., 5:])
-            xy_loss = tf.reduce_sum(xy_loss) / tf.cast(tf.shape(yolo_output[0])[0], tf.float32)
-            wh_loss = tf.reduce_sum(wh_loss) / tf.cast(tf.shape(yolo_output[0])[0], tf.float32)
-            confidence_loss = tf.reduce_sum(confidence_loss) / tf.cast(tf.shape(yolo_output[0])[0], tf.float32)
-            class_loss = tf.reduce_sum(class_loss) / tf.cast(tf.shape(yolo_output[0])[0], tf.float32)
+            xy_loss = tf.reduce_sum(xy_loss) / tf.cast(tf.shape(yolo_output[index])[0], tf.float32)
+            wh_loss = tf.reduce_sum(wh_loss) / tf.cast(tf.shape(yolo_output[index])[0], tf.float32)
+            confidence_loss = tf.reduce_sum(confidence_loss) / tf.cast(tf.shape(yolo_output[index])[0], tf.float32)
+            class_loss = tf.reduce_sum(class_loss) / tf.cast(tf.shape(yolo_output[index])[0], tf.float32)
 
             loss += xy_loss + wh_loss + confidence_loss + class_loss
-
-        return loss
+            tl_xy += xy_loss
+            tl_wh += wh_loss
+            tl_conf += confidence_loss
+            tl_class += class_loss
+        return loss, tl_xy , tl_wh , tl_conf ,tl_class
