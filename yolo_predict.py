@@ -78,16 +78,21 @@ class yolo_predictor:
         anchor_mask = [[6, 7, 8], [3, 4, 5], [0, 1, 2]]
         boxes = []
         box_scores = []
+        class_probs = []
         input_shape = tf.shape(yolo_outputs[0])[1 : 3] * 32
         # 对三个尺度的输出获取每个预测box坐标和box的分数，score计算为置信度x类别概率
-        for i in range(len(yolo_outputs)):
-            _boxes, _box_scores = self.boxes_and_scores(yolo_outputs[i], self.anchors[anchor_mask[i]], len(self.class_names), input_shape, image_shape)
+        # for i in range(len(yolo_outputs)):
+        for i in range(1):
+            _boxes, _box_scores, _class_prob = self.boxes_and_scores(yolo_outputs[i], self.anchors[anchor_mask[i]], len(self.class_names), input_shape, image_shape)
             boxes.append(_boxes)
             box_scores.append(_box_scores)
+            class_probs.append(_class_prob)
         boxes = tf.concat(boxes, axis = 0)
         box_scores = tf.concat(box_scores, axis = 0)
+        class_probs = tf.concat(class_probs, axis=0)
+        classes = tf.argmax(class_probs, dimension=-1)
         box_scores = tf.reduce_max(box_scores, axis = -1)
-        classes = tf.arg_max(box_scores, dimension=1)
+        classes = tf.expand_dims(classes, axis=-1)
 
         mask = box_scores >= self.obj_threshold
         max_boxes_tensor = tf.constant(max_boxes, dtype = tf.int32)
@@ -142,7 +147,8 @@ class yolo_predictor:
         boxes = tf.reshape(boxes, [-1, 4])
         box_scores = box_confidence * box_class_probs
         box_scores = tf.reshape(box_scores, [-1, classes_num])
-        return boxes, box_scores
+        box_class_probs = tf.reshape(box_class_probs, [-1, classes_num])
+        return boxes, box_scores, box_class_probs
 
 
     def correct_boxes(self, box_xy, box_wh, input_shape, image_shape):
