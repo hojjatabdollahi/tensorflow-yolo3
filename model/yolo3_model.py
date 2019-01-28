@@ -80,7 +80,6 @@ class yolo:
             scale = True, training = training, name = name)
         return tf.nn.leaky_relu(bn_layer, alpha = 0.1)
 
-
     def _conv2d_layer(self, inputs, filters_num, kernel_size, name, use_bias = False, strides = 1):
         """
         Introduction
@@ -108,6 +107,20 @@ class yolo:
             kernel_size = kernel_size, strides = [strides, strides], kernel_initializer = tf.glorot_uniform_initializer(),
             padding = ('SAME' if strides == 1 else 'VALID'), kernel_regularizer = tf.contrib.layers.l2_regularizer(scale = 5e-4), use_bias = use_bias, name = name)
         return conv
+
+    def _fc_layer(self, inputs, num_output, name, use_bias = True):
+        """
+        Introduction
+        ------------
+        Parameters
+        ----------
+        Returns
+        -------
+            conv: 卷积之后的feature map
+        """
+        regularizer = tf.contrib.layers.l2_regularizer(scale=0.1)
+        fc = tf.layers.dense(inputs, num_output, use_bias=use_bias, kernel_initializer=tf.glorot_uniform_initializer, kernel_regularizer=regularizer, name=name) # if you don't set the activation function it will be linear by default
+        return fc
 
 
     def _Residual_block(self, inputs, filters_num, blocks_num, conv_index, training = True, norm_decay = 0.99, norm_epsilon = 1e-3):
@@ -221,7 +234,9 @@ class yolo:
         conv_index += 1
         conv = self._conv2d_layer(conv, filters_num = out_filters, kernel_size = 1, strides = 1, name = "conv2d_" + str(conv_index), use_bias = True)
         conv_index += 1
-        return route, conv, conv_index
+        fc = self._fc_layer(conv, num_output = out_filters, name = "fc_" + str(conv_index))
+        conv_index += 1
+        return route, fc, conv_index
 
 
     def yolo_inference(self, inputs, num_anchors, num_classes, training = True):
@@ -286,7 +301,7 @@ class yolo:
         #将w,h也归一化为占416的比例
         box_wh = tf.exp(predictions[..., 2:4]) * anchors_tensor / input_shape[::-1]
         box_confidence = tf.sigmoid(predictions[..., 4:5])
-        box_class_probs = tf.sigmoid(predictions[..., 5:])
+        box_class_probs = predictions[..., 5:]
         if training == True:
             return grid, predictions, box_xy, box_wh
         return box_xy, box_wh, box_confidence, box_class_probs
@@ -386,10 +401,15 @@ class yolo:
             accuracy
         """
         loss = 0
+        tl_xy = 0
+        tl_wh = 0
+        tl_conf = 0
+        tl_class = 0
+
         anchor_mask = [[6, 7, 8], [3, 4, 5], [0, 1, 2]]
         input_shape = [416.0, 416.0]
         grid_shapes = [tf.cast(tf.shape(yolo_output[l])[1:3], tf.float32) for l in range(3)]
-        for index in range(3):
+        for index in range(1):
             # 只有负责预测ground truth box的grid对应的为1, 才计算相对应的loss
             # object_mask的shape为[batch_size, grid_size, grid_size, 3, 1]
             object_mask = y_true[index][..., 4:5]
@@ -411,19 +431,23 @@ class yolo:
                 best_iou = tf.reduce_max(iou, axis = -1)
                 ignore_mask = ignore_mask.write(internal_index, tf.cast(best_iou < ignore_thresh, tf.float32))
                 return internal_index + 1, ignore_mask
-            _, ignore_mask = tf.while_loop(lambda internal_index, ignore_mask : internal_index < tf.shape(yolo_output[0])[0], loop_body, [0, ignore_mask])
+            _, ignore_mask = tf.while_loop(lambda internal_index, ignore_mask : internal_index < tf.shape(yolo_output[index])[0], loop_body, [0, ignore_mask])
             ignore_mask = ignore_mask.stack()
             ignore_mask = tf.expand_dims(ignore_mask, axis = -1)
             # 计算四个部分的loss
             xy_loss = object_mask * box_loss_scale * tf.nn.sigmoid_cross_entropy_with_logits(labels = raw_true_xy, logits = predictions[..., 0:2])
+            # wh_loss = object_mask * box_loss_scale * tf.nn.sigmoid_cross_entropy_with_logits(labels = raw_true_wh, logits = predictions[..., 2:4])
             wh_loss = object_mask * box_loss_scale * 0.5 * tf.square(raw_true_wh - predictions[..., 2:4])
             confidence_loss = object_mask * tf.nn.sigmoid_cross_entropy_with_logits(labels = object_mask, logits = predictions[..., 4:5]) + (1 - object_mask) * tf.nn.sigmoid_cross_entropy_with_logits(labels = object_mask, logits = predictions[..., 4:5]) * ignore_mask
             class_loss = object_mask * tf.expand_dims(tf.nn.softmax_cross_entropy_with_logits_v2(labels =  class_probs, logits = predictions[..., 5:]), axis=-1)
-            xy_loss = tf.reduce_sum(xy_loss) / tf.cast(tf.shape(yolo_output[0])[0], tf.float32)
-            wh_loss = tf.reduce_sum(wh_loss) / tf.cast(tf.shape(yolo_output[0])[0], tf.float32)
-            confidence_loss = tf.reduce_sum(confidence_loss) / tf.cast(tf.shape(yolo_output[0])[0], tf.float32)
-            class_loss = tf.reduce_sum(class_loss) / tf.cast(tf.shape(yolo_output[0])[0], tf.float32)
+            xy_loss = tf.reduce_sum(xy_loss) / tf.cast(tf.shape(yolo_output[index])[0], tf.float32)
+            wh_loss = tf.reduce_sum(wh_loss) / tf.cast(tf.shape(yolo_output[index])[0], tf.float32)
+            confidence_loss = tf.reduce_sum(confidence_loss) / tf.cast(tf.shape(yolo_output[index])[0], tf.float32)
+            class_loss = tf.reduce_sum(class_loss) / tf.cast(tf.shape(yolo_output[index])[0], tf.float32)
 
-            loss += xy_loss + wh_loss + confidence_loss + class_loss
-
-        return loss
+            loss += xy_loss + wh_loss + confidence_loss + class_loss*2.0
+            tl_xy += xy_loss
+            tl_wh += wh_loss
+            tl_conf += confidence_loss
+            tl_class += class_loss
+        return loss, tl_xy , tl_wh , tl_conf ,tl_class
