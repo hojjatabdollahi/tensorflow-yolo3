@@ -28,3 +28,4 @@ live_hot_statistic.py
 /test_model/*
 /model_data/darknet53.weights
 /model_data/yolov3.weights
+*.jpg

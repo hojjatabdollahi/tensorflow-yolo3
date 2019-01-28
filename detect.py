@@ -36,7 +36,7 @@ def detect( model_path, yolo_weights = None, image_path = None):
             sess.run(load_op)
         else:
             saver = tf.train.Saver()
-            saver.restore(sess, "./test_model/model.ckpt-192192/model.ckpt-149550") # emotion
+            saver.restore(sess, "./test_model/model.ckpt-192192/model.ckpt-44865") # emotion
             # saver.restore(sess, "./test_model/model.ckpt-192192/model.ckpt-19940") # detection
         while True:
             start_time = time.time()    
