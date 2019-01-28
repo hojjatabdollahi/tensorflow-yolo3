@@ -148,46 +148,6 @@ class Reader:
                 boxes = []
                 boxes.append(np.array([box[1],box[2],box[1]+box[3],box[2]+box[4],box[0]]))
                 boxes_data.append(np.array(boxes))
-
-
-            # data = json.load(file)
-            # annotations = data['annotations']
-            # for ant in annotations:
-            #     id = ant['image_id']
-            #     name = os.path.join(self.data_file[self.mode], '%012d.jpg' % id)
-            #     cat = ant['category_id']
-            #     if cat >= 1 and cat <= 11:
-            #         cat = cat - 1
-            #     elif cat >= 13 and cat <= 25:
-            #         cat = cat - 2
-            #     elif cat >= 27 and cat <= 28:
-            #         cat = cat - 3
-            #     elif cat >= 31 and cat <= 44:
-            #         cat = cat - 5
-            #     elif cat >= 46 and cat <= 65:
-            #         cat = cat - 6
-            #     elif cat == 67:
-            #         cat = cat - 7
-            #     elif cat == 70:
-            #         cat = cat - 9
-            #     elif cat >= 72 and cat <= 82:
-            #         cat = cat - 10
-            #     elif cat >= 84 and cat <= 90:
-            #         cat = cat - 11
-            #     name_box_id[name].append([ant['bbox'], cat])
-
-            # for key in name_box_id.keys():
-            #     boxes = []
-            #     image_data.append(key)
-            #     box_infos = name_box_id[key]
-            #     for info in box_infos:
-            #         x_min = info[0][0]
-            #         y_min = info[0][1]
-            #         x_max = x_min + info[0][2]
-            #         y_max = y_min + info[0][3]
-            #         boxes.append(np.array([x_min, y_min, x_max, y_max, info[1]]))
-            #     boxes_data.append(np.array(boxes))
-
         return image_data, boxes_data
 
 
@@ -261,7 +221,7 @@ class Reader:
         bbox = tf.concat(axis = 0, values = [xmin, ymin, xmax, ymax, label-1])
         bbox = tf.transpose(bbox, [1, 0])
         image, bbox = self.Preprocess(image, bbox)
-        bbox_true_13, bbox_true_26, bbox_true_52 = tf.py_func(self.Preprocess_true_boxes, [bbox], [tf.float32, tf.float32, tf.float32])
+        bbox_true_13, bbox_true_26, bbox_true_52= tf.py_func(self.Preprocess_true_boxes, [bbox], [tf.float32, tf.float32, tf.float32])
         return image, bbox, bbox_true_13, bbox_true_26, bbox_true_52
 
     def Preprocess(self, image, bbox):
