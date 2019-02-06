@@ -63,10 +63,10 @@ class yolo_predictor:
         """
         Introduction
         ------------
-            根据Yolo模型的输出进行非极大值抑制，获取最后的物体检测框和物体检测类别
+            Receives the output of yolo_inference and returns the suppressed boxes and their classes.
         Parameters
         ----------
-            yolo_outputs: yolo模型输出
+            yolo_outputs: the output of the yolo network (the output of yolo_inference)
             image_shape: 图片的大小
             max_boxes:  最大box数量
         Returns
@@ -81,17 +81,17 @@ class yolo_predictor:
         class_probs = []
         input_shape = tf.shape(yolo_outputs[0])[1 : 3] * 32
         # 对三个尺度的输出获取每个预测box坐标和box的分数，score计算为置信度x类别概率
-        # for i in range(len(yolo_outputs)):
-        for i in range(1):
+        # for i in range(len(yolo_outputs)): #This is doing it for all 3 layers.
+        for i in range(1): # for now testing with just 13x13
             _boxes, _box_scores, _class_prob = self.boxes_and_scores(yolo_outputs[i], self.anchors[anchor_mask[i]], len(self.class_names), input_shape, image_shape)
             boxes.append(_boxes)
             box_scores.append(_box_scores)
             class_probs.append(_class_prob)
-        boxes = tf.concat(boxes, axis = 0)
+        boxes = tf.concat(boxes, axis = 0) # boxes from 13x13, 26x26 and 52x52 are added to the same list, it's going to be a long list
         box_scores = tf.concat(box_scores, axis = 0)
         class_probs = tf.concat(class_probs, axis=0)
-        classes = tf.argmax(class_probs, dimension=-1)
-        box_scores = tf.reduce_max(box_scores, axis = -1)
+        classes = tf.argmax(class_probs, dimension=-1) # argmax returns the index, in this case the index and the class value are the same
+        box_scores = tf.reduce_max(box_scores, axis = -1) # TODO: Do we need to expand box_scores dimensions?? 
         classes = tf.expand_dims(classes, axis=-1)
 
         mask = box_scores >= self.obj_threshold
@@ -129,7 +129,7 @@ class yolo_predictor:
         """
         Introduction
         ------------
-            将预测出的box坐标转换为对应原图的坐标，然后计算每个box的分数
+            Added the option to return class probability.
         Parameters
         ----------
             feats: yolo输出的feature map
@@ -155,7 +155,9 @@ class yolo_predictor:
         """
         Introduction
         ------------
-            计算物体框预测坐标在原图中的位置坐标
+            the input are [xy,wh] but the output is [y1,x1,y2,x2]
+            because nms needs the y first and then x.
+            Also the output is not between 0-1, it is correct scale.
         Parameters
         ----------
             box_xy: 物体框左上角坐标
@@ -164,7 +166,7 @@ class yolo_predictor:
             image_shape: 图片的大小
         Returns
         -------
-            boxes: 物体框的位置
+            boxes: note that the boxes are [y1,x1,y2,x2]
         """
         box_yx = box_xy[..., ::-1]
         box_hw = box_wh[..., ::-1]
@@ -184,7 +186,7 @@ class yolo_predictor:
             box_maxes[..., 0:1],
             box_maxes[..., 1:2]
         ], axis = -1)
-        boxes *= tf.concat([image_shape, image_shape], axis = -1)
+        boxes *= tf.concat([image_shape, image_shape], axis = -1) # why?
         return boxes
 
 
@@ -226,17 +228,18 @@ class yolo_predictor:
         """
         Introduction
         ------------
-            构建预测模型
+            detect the boxes and their classes
         Parameters
         ----------
-            inputs: 处理之后的输入图片
-            image_shape: 图像原始大小
+            inputs: the image 
+            image_shape: 
         Returns
         -------
-            boxes: 物体框坐标
-            scores: 物体概率值
-            classes: 物体类别
+            boxes: All of the boxes. 
+            scores: scores for each box.
+            classes: for each box.
         """
+        a 
         model = yolo(config.norm_epsilon, config.norm_decay, self.anchors_path, self.classes_path, pre_train = False)
         output = model.yolo_inference(inputs, config.num_anchors // 3, config.num_classes, training = False)
         boxes, scores, classes = self.eval(output, image_shape, max_boxes = 20)
