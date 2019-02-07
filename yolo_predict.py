@@ -75,54 +75,56 @@ class yolo_predictor:
             scores_: 物体类别的概率
             classes_: 物体类别
         """
-        anchor_mask = [[6, 7, 8], [3, 4, 5], [0, 1, 2]]
-        boxes = []
-        box_scores = []
-        class_probs = []
-        input_shape = tf.shape(yolo_outputs[0])[1 : 3] * 32
-        # 对三个尺度的输出获取每个预测box坐标和box的分数，score计算为置信度x类别概率
-        # for i in range(len(yolo_outputs)): #This is doing it for all 3 layers.
-        for i in range(1): # for now testing with just 13x13
-            _boxes, _box_scores, _class_prob = self.boxes_and_scores(yolo_outputs[i], self.anchors[anchor_mask[i]], len(self.class_names), input_shape, image_shape)
-            boxes.append(_boxes)
-            box_scores.append(_box_scores)
-            class_probs.append(_class_prob)
-        boxes = tf.concat(boxes, axis = 0) # boxes from 13x13, 26x26 and 52x52 are added to the same list, it's going to be a long list
-        box_scores = tf.concat(box_scores, axis = 0)
-        class_probs = tf.concat(class_probs, axis=0)
-        classes = tf.argmax(class_probs, dimension=-1) # argmax returns the index, in this case the index and the class value are the same
-        box_scores = tf.reduce_max(box_scores, axis = -1) # TODO: Do we need to expand box_scores dimensions?? 
-        classes = tf.expand_dims(classes, axis=-1)
+        # anchor_mask = [[6, 7, 8], [3, 4, 5], [0, 1, 2]]
+        # boxes = []
+        # box_scores = []
+        # class_probs = []
+        # input_shape = tf.shape(yolo_outputs[0])[1 : 3] * 32
+        # # 对三个尺度的输出获取每个预测box坐标和box的分数，score计算为置信度x类别概率
+        # # for i in range(len(yolo_outputs)): #This is doing it for all 3 layers.
+        # for i in range(1): # for now testing with just 13x13
+        #     _boxes, _box_scores, _class_prob = self.boxes_and_scores(yolo_outputs[i], self.anchors[anchor_mask[i]], len(self.class_names), input_shape, image_shape)
+        #     boxes.append(_boxes)
+        #     box_scores.append(_box_scores)
+        #     class_probs.append(_class_prob)
+        # boxes = tf.concat(boxes, axis = 0) # boxes from 13x13, 26x26 and 52x52 are added to the same list, it's going to be a long list
+        # box_scores = tf.concat(box_scores, axis = 0)
+        # class_probs = tf.concat(class_probs, axis=0)
+        # classes = tf.argmax(class_probs, dimension=-1) # argmax returns the index, in this case the index and the class value are the same
+        # box_scores = tf.reduce_max(box_scores, axis = -1) # TODO: Do we need to expand box_scores dimensions?? 
+        # classes = tf.expand_dims(classes, axis=-1)
 
-        mask = box_scores >= self.obj_threshold
-        max_boxes_tensor = tf.constant(max_boxes, dtype = tf.int32)
-        boxes_ = []
-        scores_ = []
-        classes_ = []
+        # mask = box_scores >= self.obj_threshold
+        # max_boxes_tensor = tf.constant(max_boxes, dtype = tf.int32)
+        # boxes_ = []
+        # scores_ = []
+        # classes_ = []
 
-        class_boxes = tf.boolean_mask(boxes, mask)
-        class_box_scores = tf.boolean_mask(box_scores, mask)
-        nms_index = tf.image.non_max_suppression(class_boxes, class_box_scores, max_boxes_tensor, iou_threshold = self.nms_threshold)
-        class_boxes = tf.gather(class_boxes, nms_index)
-        class_box_scores = tf.gather(class_box_scores, nms_index)
-        classes = tf.gather(classes, nms_index)
-        boxes_.append(class_boxes)
-        scores_.append(class_box_scores)
-        classes_.append(classes)
-        # for c in range(len(self.class_names)):
-        #     class_boxes = tf.boolean_mask(boxes, mask[:, c])
-        #     class_box_scores = tf.boolean_mask(box_scores[:, c], mask[:, c])
-        #     nms_index = tf.image.non_max_suppression(class_boxes, class_box_scores, max_boxes_tensor, iou_threshold = self.nms_threshold)
-        #     class_boxes = tf.gather(class_boxes, nms_index)
-        #     class_box_scores = tf.gather(class_box_scores, nms_index)
-        #     classes = tf.ones_like(class_box_scores, 'int32') * c
-        #     boxes_.append(class_boxes)
-        #     scores_.append(class_box_scores)
-        #     classes_.append(classes)
-        boxes_ = tf.concat(boxes_, axis = 0)
-        scores_ = tf.concat(scores_, axis = 0)
-        classes_ = tf.concat(classes_, axis = 0)
-        return boxes_, scores_, classes_
+        # class_boxes = tf.boolean_mask(boxes, mask)
+        # class_box_scores = tf.boolean_mask(box_scores, mask)
+        # nms_index = tf.image.non_max_suppression(class_boxes, class_box_scores, max_boxes_tensor, iou_threshold = self.nms_threshold)
+        # class_boxes = tf.gather(class_boxes, nms_index)
+        # class_box_scores = tf.gather(class_box_scores, nms_index)
+        # classes = tf.gather(classes, nms_index)
+        # boxes_.append(class_boxes)
+        # scores_.append(class_box_scores)
+        # classes_.append(classes)
+        # # for c in range(len(self.class_names)):
+        # #     class_boxes = tf.boolean_mask(boxes, mask[:, c])
+        # #     class_box_scores = tf.boolean_mask(box_scores[:, c], mask[:, c])
+        # #     nms_index = tf.image.non_max_suppression(class_boxes, class_box_scores, max_boxes_tensor, iou_threshold = self.nms_threshold)
+        # #     class_boxes = tf.gather(class_boxes, nms_index)
+        # #     class_box_scores = tf.gather(class_box_scores, nms_index)
+        # #     classes = tf.ones_like(class_box_scores, 'int32') * c
+        # #     boxes_.append(class_boxes)
+        # #     scores_.append(class_box_scores)
+        # #     classes_.append(classes)
+        # boxes_ = tf.concat(boxes_, axis = 0)
+        # scores_ = tf.concat(scores_, axis = 0)
+        # classes_ = tf.concat(classes_, axis = 0)
+
+        class_ = tf.arg_max(yolo_outputs, 1)
+        return class_ #boxes_, scores_, classes_
 
 
     def boxes_and_scores(self, feats, anchors, classes_num, input_shape, image_shape):
@@ -239,8 +241,8 @@ class yolo_predictor:
             scores: scores for each box.
             classes: for each box.
         """
-        a 
         model = yolo(config.norm_epsilon, config.norm_decay, self.anchors_path, self.classes_path, pre_train = False)
         output = model.yolo_inference(inputs, config.num_anchors // 3, config.num_classes, training = False)
-        boxes, scores, classes = self.eval(output, image_shape, max_boxes = 20)
-        return boxes, scores, classes
+        # boxes, scores, classes = self.eval(output, image_shape, max_boxes = 20)
+        classes = self.eval(output, image_shape, max_boxes = 20)
+        return classes # boxes, scores, classes

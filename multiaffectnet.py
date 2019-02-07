@@ -65,64 +65,6 @@ class Reader:
         class_names = [c.strip() for c in class_names]
         return class_names
 
-    def Preprocess_true_boxes(self, true_boxes):
-        """
-        Introduction
-        ------------
-            calculate the ground truth box for all the layers, input is [x_min, y_min, x_max, y_max] output is [center, wh]
-        Parameters
-        ----------
-            true_boxes: ground truth box 形状为[boxes, 5], x_min, y_min, x_max, y_max, class_id
-        """
-        num_layers = len(self.anchors) // 3
-        anchor_mask = [[6, 7, 8], [3, 4, 5], [0, 1, 2]]
-        true_boxes = np.array(true_boxes, dtype='float32')
-        input_shape = np.array([self.input_shape, self.input_shape], dtype='int32')
-        boxes_xy = (true_boxes[..., 0:2] + true_boxes[..., 2:4]) // 2.
-        boxes_wh = true_boxes[..., 2:4] - true_boxes[..., 0:2]
-        true_boxes[..., 0:2] = boxes_xy / input_shape[::-1]
-        true_boxes[..., 2:4] = boxes_wh / input_shape[::-1]
-
-
-        grid_shapes = [input_shape // 32, input_shape // 16, input_shape // 8]
-        y_true = [np.zeros((grid_shapes[l][0], grid_shapes[l][1], len(anchor_mask[l]), 5 + self.num_classes), dtype='float32') for l in range(num_layers)]
-        # 这里扩充维度是为了后面应用广播计算每个图中所有box的anchor互相之间的iou
-        anchors = np.expand_dims(self.anchors, 0)
-        anchors_max = anchors / 2.
-        anchors_min = -anchors_max
-        # 因为之前对box做了padding, 因此需要去除全0行
-        valid_mask = boxes_wh[..., 0] > 0
-        wh = boxes_wh[valid_mask]
-        # 为了应用广播扩充维度
-        wh = np.expand_dims(wh, -2)
-        # wh 的shape为[box_num, 1, 2]
-        boxes_max = wh / 2.
-        boxes_min = -boxes_max
-
-        intersect_min = np.maximum(boxes_min, anchors_min)
-        intersect_max = np.minimum(boxes_max, anchors_max)
-        intersect_wh = np.maximum(intersect_max - intersect_min, 0.)
-        intersect_area = intersect_wh[..., 0] * intersect_wh[..., 1]
-        box_area = wh[..., 0] * wh[..., 1]
-        anchor_area = anchors[..., 0] * anchors[..., 1]
-        iou = intersect_area / (box_area + anchor_area - intersect_area)
-
-        # 找出和ground truth box的iou最大的anchor box, 然后将对应不同比例的负责该ground turth box 的位置置为ground truth box坐标
-        best_anchor = np.argmax(iou, axis = -1)
-        for t, n in enumerate(best_anchor):
-            for l in range(num_layers):
-                if n in anchor_mask[l]:
-                    i = np.floor(true_boxes[t, 0] * grid_shapes[l][1]).astype('int32')
-                    j = np.floor(true_boxes[t, 1] * grid_shapes[l][0]).astype('int32')
-                    k = anchor_mask[l].index(n)
-                    c = true_boxes[t, 4].astype('int32')
-                    y_true[l][j, i, k, 0:4] = true_boxes[t, 0:4]
-                    y_true[l][j, i, k, 4] = 1.
-                    y_true[l][j, i, k, 5 + c] = 1.
-        return y_true[0], y_true[1], y_true[2]
-
-
-
     def read_annotations(self):
         """
         Introduction
@@ -142,7 +84,7 @@ class Reader:
                 counter += 1
                 line_data = line.replace('"', '').strip().split(',')
                 id = line_data[0]
-                name = os.path.join('/home/hojjat/expressionnet/images', id)
+                name = os.path.join('/home/hojjat/expressionnet/', id)
                 image_data.append(name)
                 box = [int(j) for j in line_data[1:6]]
                 boxes = []
@@ -213,18 +155,28 @@ class Reader:
         )
         image = tf.image.decode_jpeg(features['image/encoded'], channels = 3)
         image = tf.image.convert_image_dtype(image, tf.uint8)
-        xmin = tf.expand_dims(features['image/object/bbox/xmin'].values, axis = 0)
-        ymin = tf.expand_dims(features['image/object/bbox/ymin'].values, axis = 0)
-        xmax = tf.expand_dims(features['image/object/bbox/xmax'].values, axis = 0)
-        ymax = tf.expand_dims(features['image/object/bbox/ymax'].values, axis = 0)
-        label = tf.expand_dims(features['image/object/bbox/label'].values, axis = 0)
-        bbox = tf.concat(axis = 0, values = [xmin, ymin, xmax, ymax, label-1])
-        bbox = tf.transpose(bbox, [1, 0])
-        image, bbox = self.Preprocess(image, bbox)
-        bbox_true_13, bbox_true_26, bbox_true_52= tf.py_func(self.Preprocess_true_boxes, [bbox], [tf.float32, tf.float32, tf.float32])
-        return image, bbox, bbox_true_13, bbox_true_26, bbox_true_52
 
-    def Preprocess(self, image, bbox):
+        # Convert label from a scalar uint8 tensor to an int32 scalar.
+        label = tf.cast(features['image/object/bbox/label'].values, tf.int32)
+        one = tf.ones_like(label)
+        label = tf.subtract(label, one) # removing 1 from the label to convert [1,2,3] to [0,1,2]\
+        label_categorical = tf.one_hot(
+            label,
+            depth= 3,
+            on_value=1,
+            off_value=0,
+            dtype=tf.int32,
+        )
+        label_categorical = tf.reshape(label_categorical, [3])
+        label_categorical.set_shape([3])
+
+
+        # bbox = tf.concat(axis = 0, values = [xmin, ymin, xmax, ymax, label-1]) 
+        # bbox = tf.transpose(bbox, [1, 0])
+        image = self.Preprocess(image)
+        return image, label_categorical
+
+    def Preprocess(self, image):
         """
         Introduction
         ------------
@@ -239,7 +191,7 @@ class Reader:
         input_high = tf.cast(self.input_shape, tf.float32)
         new_high = image_high * tf.minimum(input_width / image_width, input_high / image_high)
         new_width = image_width * tf.minimum(input_width / image_width, input_high / image_high)
-        # 将图片按照固定长宽比进行padding缩放
+        # Add padding to the image
         dx = (input_width - new_width) / 2
         dy = (input_high - new_high) / 2
         image = tf.image.resize_images(image, [tf.cast(new_high, tf.int32), tf.cast(new_width, tf.int32)], method = tf.image.ResizeMethod.BICUBIC)
@@ -248,30 +200,14 @@ class Reader:
         image_ones_padded = tf.image.pad_to_bounding_box(image_ones, tf.cast(dy, tf.int32), tf.cast(dx, tf.int32), tf.cast(input_high, tf.int32), tf.cast(input_width, tf.int32))
         image_color_padded = (1 - image_ones_padded) * 128
         image = image_color_padded + new_image
-        # 矫正bbox坐标
-        xmin, ymin, xmax, ymax, label = tf.split(value = bbox, num_or_size_splits=5, axis = 1)
-        xmin = xmin * new_width / image_width + dx
-        xmax = xmax * new_width / image_width + dx
-        ymin = ymin * new_high / image_high + dy
-        ymax = ymax * new_high / image_high + dy
-        bbox = tf.concat([xmin, ymin, xmax, ymax, label], 1)
         if self.mode == 'train':
-            # 随机左右翻转图片
-            def _flip_left_right_boxes(boxes):
-                xmin, ymin, xmax, ymax, label = tf.split(value = boxes, num_or_size_splits = 5, axis = 1)
-                flipped_xmin = tf.subtract(input_width, xmax)
-                flipped_xmax = tf.subtract(input_width, xmin)
-                flipped_boxes = tf.concat([flipped_xmin, ymin, flipped_xmax, ymax, label], 1)
-                return flipped_boxes
+            # randomly flip the image
             flip_left_right = tf.greater(tf.random_uniform([], dtype = tf.float32, minval = 0, maxval = 1), 0.5)
             image = tf.cond(flip_left_right, lambda : tf.image.flip_left_right(image), lambda : image)
-            bbox = tf.cond(flip_left_right, lambda: _flip_left_right_boxes(bbox), lambda: bbox)
         # 将图片归一化到0和1之间
         image = image / 255.
         image = tf.clip_by_value(image, clip_value_min = 0.0, clip_value_max = 1.0)
-        bbox = tf.clip_by_value(bbox, clip_value_min = 0, clip_value_max = input_width - 1)
-        bbox = tf.cond(tf.greater(tf.shape(bbox)[0], config.max_boxes), lambda: bbox[:config.max_boxes], lambda: tf.pad(bbox, paddings = [[0, config.max_boxes - tf.shape(bbox)[0]], [0, 0]], mode = 'CONSTANT'))
-        return image, bbox
+        return image
 
 
     def build_dataset(self, batch_size):

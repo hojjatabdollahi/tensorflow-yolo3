@@ -12,7 +12,7 @@ from utils import draw_box, load_weights, letterbox_image, voc_ap
 
 # 指定使用GPU的Index
 os.environ["CUDA_VISIBLE_DEVICES"] = config.gpu_index
-
+# tf.enable_eager_execution()
 
 def train():
     """
@@ -25,30 +25,20 @@ def train():
     train_data = train_reader.build_dataset(config.train_batch_size)
     is_training = tf.placeholder(tf.bool, shape=[])
     iterator = train_data.make_one_shot_iterator()
-    images, bbox, bbox_true_13, bbox_true_26, bbox_true_52 = iterator.get_next()
+    images, label = iterator.get_next()
     images.set_shape([None, config.input_shape, config.input_shape, 3])
-    bbox.set_shape([None, config.max_boxes, 5])
     grid_shapes = [config.input_shape // 32,
                    config.input_shape // 16, config.input_shape // 8]
-    bbox_true_13.set_shape(
-        [None, grid_shapes[0], grid_shapes[0], 3, 5 + config.num_classes])
-    bbox_true_26.set_shape([None, grid_shapes[1], grid_shapes[1], 3, 5 + config.num_classes])
-    bbox_true_52.set_shape([None, grid_shapes[2], grid_shapes[2], 3, 5 + config.num_classes])
-    # draw_box(images, bbox)
+
     model = yolo(config.norm_epsilon, config.norm_decay,
                  config.anchors_path, config.classes_path, config.pre_train)
-    bbox_true = [bbox_true_13]
+
     output = model.yolo_inference(
         images, config.num_anchors / 3, config.num_classes, is_training)
-    loss, loss_xy, loss_wh, loss_conf, loss_class = model.yolo_loss(
-        output, bbox_true, model.anchors, config.num_classes, config.ignore_thresh)
+    loss = model.yolo_loss(output, label)
     l2_loss = tf.losses.get_regularization_loss()
-    loss += l2_loss
+    loss += l2_loss # TODO: why?
     tf.summary.scalar('loss', loss)
-    tf.summary.scalar('loss_xy', loss_xy)
-    tf.summary.scalar('loss_wh', loss_wh)
-    tf.summary.scalar('loss_conf', loss_conf)
-    # tf.summary.scalar('loss_class',loss_class)
     global_step = tf.Variable(0, trainable=False)
     lr = tf.train.exponential_decay(
         config.learning_rate, global_step, decay_steps=config.decay_step, decay_rate=0.96)
@@ -85,20 +75,19 @@ def train():
                 try:
                     start_time = time.time()
 
-                    summary, train_loss, train_loss_xy, train_loss_wh, train_loss_conf, train_loss_class, global_step_value, _ =\
-                        sess.run([merged_summary, loss,loss_xy, loss_wh, loss_conf, loss_class,
-                                global_step, train_op], feed_dict={is_training: True})
+                    summary, train_loss, global_step_value, _ =\
+                        sess.run([merged_summary, loss, global_step, train_op], feed_dict={is_training: True})
                     loss_value += train_loss
                     duration = time.time() - start_time
                     examples_per_sec = float(duration) / config.train_batch_size
                     format_str = (
-                        'Epoch {} step {}, avg los: {:.3f}, train loss = {:.3f}, gs: {}, xy:{:.3f}, wh:{:.3f}, conf:{:.3f}, class:{:.3f} ( {:.3f} examples/sec; {:.3f} ''sec/batch)')
+                        'Epoch {} step {}, avg los: {:.3f}, train loss = {:.3f}, gs: {}, ( {:.3f} examples/sec; {:.3f} ''sec/batch)')
                     # format_str = (
                         # 'Epoch {} step {}, avg los: {:.3f}, train loss = {:.3f}, gs: {}  ( {:.3f} examples/sec; {:.3f} ''sec/batch)')
                     # print('.')
                     # print(format_str.format(epoch, step, train_loss, global_step_value, examples_per_sec, duration))
                     print(format_str.format(epoch, step, loss_value / global_step_value,  train_loss, global_step_value,
-                                            train_loss_xy, train_loss_wh, train_loss_conf, train_loss_class, examples_per_sec, duration))
+                                                examples_per_sec, duration))
                     # print(format_str.format(epoch, step, loss_value / global_step_value,  train_loss, global_step_value,
                                             # examples_per_sec, duration))
                     summary_writer.add_summary(summary=tf.Summary(value=[tf.Summary.Value(

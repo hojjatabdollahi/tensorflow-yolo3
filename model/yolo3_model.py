@@ -254,21 +254,25 @@ class yolo:
         conv_index = 1
         conv2d_26, conv2d_43, conv, conv_index = self._darknet53(inputs, conv_index, training = training, norm_decay = self.norm_decay, norm_epsilon = self.norm_epsilon)
         with tf.variable_scope('yolo'):
-            conv2d_57, conv2d_59, conv_index = self._yolo_block(conv, 512, num_anchors * (num_classes + 5), conv_index = conv_index, training = training, norm_decay = self.norm_decay, norm_epsilon = self.norm_epsilon)
-            conv2d_60 = self._conv2d_layer(conv2d_57, filters_num = 256, kernel_size = 1, strides = 1, name = "conv2d_" + str(conv_index))
-            conv2d_60 = self._batch_normalization_layer(conv2d_60, name = "batch_normalization_" + str(conv_index),training = training, norm_decay = self.norm_decay, norm_epsilon = self.norm_epsilon)
+            conv = tf.reshape(conv, [-1, 1024*169])
+            fc = self._fc_layer(conv, num_output = 128, name = "fc_" + str(conv_index))
             conv_index += 1
-            unSample_0 = tf.image.resize_nearest_neighbor(conv2d_60, [2 * tf.shape(conv2d_60)[1], 2 * tf.shape(conv2d_60)[1]], name='upSample_0')
-            route0 = tf.concat([unSample_0, conv2d_43], axis = -1, name = 'route_0')
-            conv2d_65, conv2d_67, conv_index = self._yolo_block(route0, 256, num_anchors * (num_classes + 5), conv_index = conv_index, training = training, norm_decay = self.norm_decay, norm_epsilon = self.norm_epsilon)
-            conv2d_68 = self._conv2d_layer(conv2d_65, filters_num = 128, kernel_size = 1, strides = 1, name = "conv2d_" + str(conv_index))
-            conv2d_68 = self._batch_normalization_layer(conv2d_68, name = "batch_normalization_" + str(conv_index), training=training, norm_decay=self.norm_decay, norm_epsilon = self.norm_epsilon)
-            conv_index += 1
-            unSample_1 = tf.image.resize_nearest_neighbor(conv2d_68, [2 * tf.shape(conv2d_68)[1], 2 * tf.shape(conv2d_68)[1]], name='upSample_1')
-            route1 = tf.concat([unSample_1, conv2d_26], axis = -1, name = 'route_1')
-            _, conv2d_75, _ = self._yolo_block(route1, 128, num_anchors * (num_classes + 5), conv_index = conv_index, training = training, norm_decay = self.norm_decay, norm_epsilon = self.norm_epsilon)
+            fc = self._fc_layer(fc, num_output = 3, name = "fc_" + str(conv_index))
+            # conv2d_57, conv2d_59, conv_index = self._yolo_block(conv, 512, num_anchors * (num_classes + 5), conv_index = conv_index, training = training, norm_decay = self.norm_decay, norm_epsilon = self.norm_epsilon)
+            # conv2d_60 = self._conv2d_layer(conv2d_57, filters_num = 256, kernel_size = 1, strides = 1, name = "conv2d_" + str(conv_index))
+            # conv2d_60 = self._batch_normalization_layer(conv2d_60, name = "batch_normalization_" + str(conv_index),training = training, norm_decay = self.norm_decay, norm_epsilon = self.norm_epsilon)
+            # conv_index += 1
+            # unSample_0 = tf.image.resize_nearest_neighbor(conv2d_60, [2 * tf.shape(conv2d_60)[1], 2 * tf.shape(conv2d_60)[1]], name='upSample_0')
+            # route0 = tf.concat([unSample_0, conv2d_43], axis = -1, name = 'route_0')
+            # conv2d_65, conv2d_67, conv_index = self._yolo_block(route0, 256, num_anchors * (num_classes + 5), conv_index = conv_index, training = training, norm_decay = self.norm_decay, norm_epsilon = self.norm_epsilon)
+            # conv2d_68 = self._conv2d_layer(conv2d_65, filters_num = 128, kernel_size = 1, strides = 1, name = "conv2d_" + str(conv_index))
+            # conv2d_68 = self._batch_normalization_layer(conv2d_68, name = "batch_normalization_" + str(conv_index), training=training, norm_decay=self.norm_decay, norm_epsilon = self.norm_epsilon)
+            # conv_index += 1
+            # unSample_1 = tf.image.resize_nearest_neighbor(conv2d_68, [2 * tf.shape(conv2d_68)[1], 2 * tf.shape(conv2d_68)[1]], name='upSample_1')
+            # route1 = tf.concat([unSample_1, conv2d_26], axis = -1, name = 'route_1')
+            # _, conv2d_75, _ = self._yolo_block(route1, 128, num_anchors * (num_classes + 5), conv_index = conv_index, training = training, norm_decay = self.norm_decay, norm_epsilon = self.norm_epsilon)
 
-        return [conv2d_59, conv2d_67, conv2d_75]
+        return fc
 
 
 
@@ -383,71 +387,14 @@ class yolo:
 
 
 
-    def yolo_loss(self, yolo_output, y_true, anchors, num_classes, ignore_thresh = .5):
-        """
-        Introduction
-        ------------
-            yolo模型的损失函数
-        Parameters
-        ----------
-            yolo_output: yolo模型的输出
-            y_true: 经过预处理的真实标签，shape为[batch, grid_size, grid_size, 5 + num_classes]
-            anchors: yolo模型对应的anchors
-            num_classes: 类别数量
-            ignore_thresh: 小于该阈值的box我们认为没有物体
-        Returns
-        -------
-            loss: 每个batch的平均损失值
-            accuracy
-        """
-        loss = 0
-        tl_xy = 0
-        tl_wh = 0
-        tl_conf = 0
-        tl_class = 0
+    def yolo_loss(self, yolo_output, y_true):
+        # Define loss and optimizer
+        with tf.name_scope('loss'):
+            # pred_scaled = tf.multiply(pred, tf.expand_dims(class_weight,0))
+            error_array = tf.nn.softmax_cross_entropy_with_logits_v2(logits=yolo_output, labels=y_true) 
 
-        anchor_mask = [[6, 7, 8], [3, 4, 5], [0, 1, 2]]
-        input_shape = [416.0, 416.0]
-        grid_shapes = [tf.cast(tf.shape(yolo_output[l])[1:3], tf.float32) for l in range(3)]
-        for index in range(1):
-            # 只有负责预测ground truth box的grid对应的为1, 才计算相对应的loss
-            # object_mask的shape为[batch_size, grid_size, grid_size, 3, 1]
-            object_mask = y_true[index][..., 4:5]
-            class_probs = y_true[index][..., 5:]
-            grid, predictions, pred_xy, pred_wh = self.yolo_head(yolo_output[index], anchors[anchor_mask[index]], num_classes, input_shape, training = True)
-            # pred_box的shape为[batch, box_num, 4]
-            pred_box = tf.concat([pred_xy, pred_wh], axis = -1)
-            raw_true_xy = y_true[index][..., :2] * grid_shapes[index][::-1] - grid
-            object_mask_bool = tf.cast(object_mask, dtype = tf.bool)
-            raw_true_wh = tf.log(tf.where(tf.equal(y_true[index][..., 2:4] / anchors[anchor_mask[index]] * input_shape[::-1], 0), tf.ones_like(y_true[index][..., 2:4]), y_true[index][..., 2:4] / anchors[anchor_mask[index]] * input_shape[::-1]))
-            # 该系数是用来调整box坐标loss的系数
-            box_loss_scale = 2 - y_true[index][..., 2:3] * y_true[index][..., 3:4]
-            ignore_mask = tf.TensorArray(dtype = tf.float32, size = 1, dynamic_size = True)
-            def loop_body(internal_index, ignore_mask):
-                # true_box的shape为[box_num, 4]
-                true_box = tf.boolean_mask(y_true[index][internal_index, ..., 0:4], object_mask_bool[internal_index, ..., 0])
-                iou = self.box_iou(pred_box[internal_index], true_box)
-                # 计算每个true_box对应的预测的iou最大的box
-                best_iou = tf.reduce_max(iou, axis = -1)
-                ignore_mask = ignore_mask.write(internal_index, tf.cast(best_iou < ignore_thresh, tf.float32))
-                return internal_index + 1, ignore_mask
-            _, ignore_mask = tf.while_loop(lambda internal_index, ignore_mask : internal_index < tf.shape(yolo_output[index])[0], loop_body, [0, ignore_mask])
-            ignore_mask = ignore_mask.stack()
-            ignore_mask = tf.expand_dims(ignore_mask, axis = -1)
-            # 计算四个部分的loss
-            xy_loss = object_mask * box_loss_scale * tf.nn.sigmoid_cross_entropy_with_logits(labels = raw_true_xy, logits = predictions[..., 0:2])
-            # wh_loss = object_mask * box_loss_scale * tf.nn.sigmoid_cross_entropy_with_logits(labels = raw_true_wh, logits = predictions[..., 2:4])
-            wh_loss = object_mask * box_loss_scale * 0.5 * tf.square(raw_true_wh - predictions[..., 2:4])
-            confidence_loss = object_mask * tf.nn.sigmoid_cross_entropy_with_logits(labels = object_mask, logits = predictions[..., 4:5]) + (1 - object_mask) * tf.nn.sigmoid_cross_entropy_with_logits(labels = object_mask, logits = predictions[..., 4:5]) * ignore_mask
-            class_loss = object_mask * tf.expand_dims(tf.nn.softmax_cross_entropy_with_logits_v2(labels =  class_probs, logits = predictions[..., 5:]), axis=-1)
-            xy_loss = tf.reduce_sum(xy_loss) / tf.cast(tf.shape(yolo_output[index])[0], tf.float32)
-            wh_loss = tf.reduce_sum(wh_loss) / tf.cast(tf.shape(yolo_output[index])[0], tf.float32)
-            confidence_loss = tf.reduce_sum(confidence_loss) / tf.cast(tf.shape(yolo_output[index])[0], tf.float32)
-            class_loss = tf.reduce_sum(class_loss) / tf.cast(tf.shape(yolo_output[index])[0], tf.float32)
-
-            loss += xy_loss + wh_loss + confidence_loss + class_loss*2.0
-            tl_xy += xy_loss
-            tl_wh += wh_loss
-            tl_conf += confidence_loss
-            tl_class += class_loss
-        return loss, tl_xy , tl_wh , tl_conf ,tl_class
+            # error_array_notscaled = tf.nn.softmax_cross_entropy_with_logits(logits=pred, labels=label_tensor_placeholder) 
+            # for i in range(error_array.eval().get_shape()[0]):
+            #   error_array[i] = error_array[i]*class_weight[label_tensor_placeholder[i]]
+            cost = tf.reduce_mean(error_array)
+        return cost
