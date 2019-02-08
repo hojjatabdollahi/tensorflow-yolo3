@@ -29,18 +29,18 @@ decay_rate = 0.96
 
 ## Validation
 val_batch_size = 10
-val_num = 5000
+val_num = 1200
 
 ## Total number of epochs
 Epoch = 100
 obj_threshold = 0.3
 nms_threshold = 0.5
 log_dir = './logs/affectnet_backbone_1'
-data_dir = '/media/data/hojjat_data/affectnet'
+data_dir = './affectnet_eval_400/'
 model_dir = './test_model/affectnet_backbone_1'
 pre_train_yolo3 = False
 yolo3_weights_path = './model_data/yolov3.weights'
 darknet53_weights_path = './model_data/darknet53.weights'
 anchors_path = './model_data/yolo_anchors.txt'
-val_data_file = '/data0/dataset/coco/val2017'
-val_annotations_file = '/data0/gaochen3/tensorflow-yolo3/annotations/instances_val2017.json'
+val_data_file = './affectnet_eval_400/'
+val_annotations_file = 'eval400.csv'

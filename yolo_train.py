@@ -103,8 +103,69 @@ def train():
             saver.save(sess, checkpoint_path, global_step=global_step_value)
             print('saved')
 
+def eval(yolo_weights = None):
+    """
+    Introduction
+    ------------
+        计算模型在coco验证集上的MAP, 用于评价模型
+    """
+    ground_truth = {}
+    class_pred = defaultdict(list)
+    gt_counter_per_class = defaultdict(int)
+    input_image_shape = tf.placeholder(dtype = tf.int32, shape = (2,))
+    input_image = tf.placeholder(shape = [None, 416, 416, 3], dtype = tf.float32)
+    predictor = yolo_predictor(config.obj_threshold, config.nms_threshold, config.classes_path, config.anchors_path)
+    classes = predictor.predict(input_image, input_image_shape)
+    val_Reader = Reader("val", config.data_dir, config.anchors_path, config.num_classes, input_shape = config.input_shape, max_boxes = config.max_boxes)
+    image_files, box = val_Reader.read_annotations()
+
+    tp = [[0],[0],[0]]
+    fp = [[0],[0],[0]]
+    total = 0
+    total_true = 0
+    with tf.Session() as sess:
+        if yolo_weights is not None:
+            with tf.variable_scope('predict'):
+                classes = predictor.predict(input_image, input_image_shape)
+            load_op = load_weights(tf.global_variables(scope = 'predict'), weights_file = yolo_weights)
+            sess.run(load_op)
+        else:
+            saver = tf.train.Saver()
+            ckpt = tf.train.get_checkpoint_state(config.model_dir)
+            if ckpt and tf.train.checkpoint_exists(ckpt.model_checkpoint_path):
+                print('restore model', ckpt.model_checkpoint_path)
+                saver.restore(sess, ckpt.model_checkpoint_path)
+        
+        for index in range(len(image_files)):
+            val_bboxes = []
+            image_file = image_files[index]
+
+            class_id = int(box[index][0][4])-1
+            image = Image.open(image_file)
+            resize_image = letterbox_image(image, (416, 416))
+            image_data = np.array(resize_image, dtype = np.float32)
+            image_data /= 255.
+            image_data = np.expand_dims(image_data, axis = 0)
+
+            out_classes = sess.run(
+                [classes],
+                feed_dict = {
+                    input_image : image_data,
+                    input_image_shape : [image.size[1], image.size[0]]
+                })
+            total += 1
+            if out_classes[0] == class_id:
+                total_true += 1
+                print("correct")
+            else:
+                print("incorrect")
+            print ("index: {}, true: {}, pred: {}".format(str(index), str(class_id), str(out_classes[0])))
+        
+        print("tatal: {}, true: {}".format(total, total_true))
+
+  
 
 if __name__ == "__main__":
-    train()
+    # train()
     # 计算模型的Map
-    # eval(config.model_dir, yolo_weights = config.yolo3_weights_path)
+    eval()

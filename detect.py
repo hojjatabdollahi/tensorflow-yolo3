@@ -3,6 +3,7 @@ import config
 import argparse
 import numpy as np
 import tensorflow as tf
+from multiaffectnet import Reader
 from yolo_predict import yolo_predictor
 from PIL import Image, ImageFont, ImageDraw
 from utils import letterbox_image, load_weights
@@ -11,7 +12,7 @@ import time
 # 指定使用GPU的Index
 os.environ["CUDA_VISIBLE_DEVICES"] = config.gpu_index
 
-def detect( model_path, yolo_weights = None, image_path = None):
+def detect( model_path, yolo_weights = None, image_path = None, evaluate=False):
     """
     Introduction
     ------------
@@ -21,6 +22,14 @@ def detect( model_path, yolo_weights = None, image_path = None):
         model_path: 模型路径
         image_path: 图片路径
     """
+    print("Starting the detection")
+    images, label = None, None
+    if evaluate:
+        train_reader = Reader('train', config.data_dir, config.anchors_path,
+                          config.num_classes, input_shape=config.input_shape, max_boxes=config.max_boxes)
+        train_data = train_reader.build_dataset(config.train_batch_size)
+        iterator = train_data.make_one_shot_iterator()
+        images, label = iterator.get_next()
     cap = None
     if image_path == None:
         cap = cv2.VideoCapture(0)
@@ -36,10 +45,12 @@ def detect( model_path, yolo_weights = None, image_path = None):
             sess.run(load_op)
         else:
             saver = tf.train.Saver()
-            saver.restore(sess, "./test_model/model.ckpt-192192/model.ckpt-44865") # emotion
+            saver.restore(sess, "./test_model/affectnet_backbone_1/model.ckpt-64766") # emotion
             # saver.restore(sess, "./test_model/model.ckpt-192192/model.ckpt-19940") # detection
         while True:
             start_time = time.time()    
+            if evaluate:
+                image_out, label_out = sess.run([images, label])
             if  image_path ==None:    
                 ret, image = cap.read()
                 if ret == 0:
@@ -62,7 +73,7 @@ def detect( model_path, yolo_weights = None, image_path = None):
                     input_image: image_data,
                     input_image_shape: [image.size[1], image.size[0]]
                 })
-            print('Class:  {} '.format(str(classes)))
+            print('Class:  {} '.format(str(out_classes)))
             font = ImageFont.truetype(font = 'font/FiraMono-Medium.otf', size = np.floor(3e-2 * image.size[1] + 0.5).astype('int32'))
             thickness = (image.size[0] + image.size[1]) // 300
 
@@ -109,11 +120,11 @@ def detect( model_path, yolo_weights = None, image_path = None):
             # cv_img = cv2.CreateImageHeader(image.size, cv2.IPL_DEPTH_8U, 3)  # RGB image
             # cv2.SetData(cv_img, image.tostring(), image.size[0]*3)
 
-            # if  image_path != None:
+            if  image_path != None:
             #     print('just one image')
             #     image.show()
             #     image.save('./result1.jpg')
-            #     break
+                break
             # else:
             #     open_cv_image = np.array( image )[:, :, ::-1].copy() 
             #     cv2.imshow('cimage', open_cv_image)
@@ -127,12 +138,19 @@ if __name__ == '__main__':
     parser.add_argument(
         '--image_file', type = str, help = 'image file path'
     )
+    parser.add_argument(
+        '--eval', type = bool, help = 'should we evaluate on the eval database'
+    )
     FLAGS = parser.parse_args()
     try:
         im = FLAGS.image_file
     except:
         im = None
+    try:
+        evalv = FLAGS.eval
+    except:
+        evalv = False
     if config.pre_train_yolo3 == True:
-        detect(config.model_dir, config.yolo3_weights_path,  image_path=im)
+        detect(config.model_dir, config.yolo3_weights_path,  image_path=im, evaluate=evalv)
     else:
-        detect(config.model_dir, image_path=im)
+        detect(config.model_dir, image_path=im, evaluate=evalv)

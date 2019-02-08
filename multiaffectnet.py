@@ -32,8 +32,10 @@ class Reader:
         file_pattern = self.data_dir + "/*" + self.mode + '.tfrecords'
         self.TfrecordFile = tf.gfile.Glob(file_pattern)
         self.class_names = self._get_class(config.classes_path)
+        print("Checking the tfrecords")
         if len(self.TfrecordFile) == 0:
-            self.convert_to_tfrecord(self.data_dir, tfrecord_num)
+            # self.convert_to_tfrecord(self.data_dir, tfrecord_num)
+            pass
 
     def _get_anchors(self):
         """
@@ -84,7 +86,7 @@ class Reader:
                 counter += 1
                 line_data = line.replace('"', '').strip().split(',')
                 id = line_data[0]
-                name = os.path.join('/home/hojjat/expressionnet/', id)
+                name = os.path.join('Y:/ExpressionNet/Manually_Annotated_Images/', id)
                 image_data.append(name)
                 box = [int(j) for j in line_data[1:6]]
                 boxes = []
@@ -104,6 +106,7 @@ class Reader:
             num_tfrecords: 分成多少个tfrecord
         """
         image_data, boxes_data = self.read_annotations()
+        print("Finished reading the annotation, {}".format(str(len(image_data))))
         images_num = int(len(image_data) / num_tfrecords)
         for index_records in range(num_tfrecords):
             output_file = os.path.join(tfrecord_path, str(index_records) + '_' + self.mode + '.tfrecords')
