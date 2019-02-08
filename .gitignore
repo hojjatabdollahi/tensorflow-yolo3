@@ -29,3 +29,5 @@ live_hot_statistic.py
 /model_data/darknet53.weights
 /model_data/yolov3.weights
 *.jpg
+*.tfrecords
+*.csv
