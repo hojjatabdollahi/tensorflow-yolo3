@@ -31,3 +31,4 @@ live_hot_statistic.py
 *.jpg
 *.tfrecords
 *.csv
+env/
